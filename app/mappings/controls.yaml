@@ -1,0 +1,29 @@
+rdp_exposed:
+  iso27001:
+    - A.13.1.1
+    - A.13.1.3
+  cis:
+    - "9.1"
+    - "9.2"
+db_exposed:
+  iso27001:
+    - A.13.1.1
+    - A.8.2.1
+  cis:
+    - "3.3"
+    - "4.1"
+http_no_tls:
+  iso27001:
+    - A.10.1.1
+  cis:
+    - "9.4"
+tls_expired:
+  iso27001:
+    - A.13.2.3
+  cis:
+    - "4.4"
+ssh_banner_leak:
+  iso27001:
+    - A.13.1.1
+  cis:
+    - "11.2"
