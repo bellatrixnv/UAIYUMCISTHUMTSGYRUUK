@@ -6,6 +6,7 @@ from . import db, scanner
 from .report import render_report
 from .panel import render_panel
 from .cspm_aws import run_checks
+from .notifications import send_digest
 import pdfkit
 
 app = FastAPI(title="SMBSEC MVP", version="0.1.0")
@@ -81,6 +82,8 @@ async def start_scan(req: ScanRequest):
                     h, ip, p = key.split("|"); p = int(p)
                     await db.add_finding(scan_id, h, ip, p, "ssh", "info",
                         "SSH service banner", banner, {"banner": banner})
+            trans = await db.compute_state_transitions(scan_id)
+            await send_digest(scan_id, trans)
         except Exception as e:
             await db.finish_scan(scan_id, "error", {"error": str(e)})
             return
