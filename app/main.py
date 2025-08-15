@@ -17,6 +17,11 @@ class AWSConnector(BaseModel):
     role_arn: str
     external_id: str
 
+RISKY = {3389, 5432, 6379, 3306, 9200, 27017}
+
+def has_https(open_ports, host, ip):
+    return any(h == host and i == ip and p in (443, 8443) for (h, i, p) in open_ports)
+
 @app.on_event("startup")
 async def startup():
     await db.init_db()
@@ -38,27 +43,44 @@ async def start_scan(req: ScanRequest):
                     await db.upsert_asset(scan_id, host, ip)
                     stats["hosts"] += 1
             for (host, ip, port) in out["open_ports"]:
-                title = f"Open TCP {port}"
-                desc = "Service reachable from Internet"
-                sev = "medium"
-                await db.add_finding(scan_id, host, ip, port, "tcp", sev, title, desc, {})
-                stats["open"] += 1
-                if port in (3389, 5432, 6379, 3306):
+                if port in RISKY:
+                    await db.add_finding(
+                        scan_id,
+                        host,
+                        ip,
+                        port,
+                        "tcp",
+                        "high",
+                        f"Internet-exposed service on {port}",
+                        "Restrict exposure or require VPN; verify auth; move behind WAF/bastion.",
+                        {},
+                    )
                     stats["score"] -= 10
                     stats["penalties"].append(f"Risky port {port} exposed")
-            for key, fp in out["fingerprints"].items():
-                h, ip, p = key.split("|")
-                p = int(p)
-                if "status" in fp:
-                    title = f"HTTP {fp['status']} on port {p}"
-                    server = fp.get("server","")
-                    detail = f"Server: {server} Title: {fp.get('title','')}"
-                    await db.add_finding(scan_id, h, ip, p, "http", "low", title, detail, fp)
-                if p in (80, 8080):
-                    has_https = any(x for x in out["open_ports"] if x[0]==h and x[1]==ip and x[2] in (443,8443))
-                    if not has_https:
+            fp_map = out.get("fingerprints", {})
+            for (host, ip, port) in out["open_ports"]:
+                if port not in (80, 8080, 443, 8443):
+                    continue
+                key = f"{host}|{ip}|{port}"
+                fp = fp_map.get(key, {})
+                https_ok = has_https(out["open_ports"], host, ip)
+                if port in (80, 8080) and (not https_ok or not fp.get("hsts")):
+                    sev = "medium" if https_ok else "high"
+                    reason = "No HSTS" if https_ok else "No HTTPS available"
+                    await db.add_finding(
+                        scan_id,
+                        host,
+                        ip,
+                        port,
+                        "http",
+                        sev,
+                        f"Plain HTTP exposed ({reason})",
+                        "Enable HTTPS and Strict-Transport-Security or redirect all HTTP to HTTPS.",
+                        fp,
+                    )
+                    if not https_ok:
                         stats["score"] -= 5
-                        stats["penalties"].append("HTTP exposed without HTTPS")
+                        stats["penalties"].append("HTTP without HTTPS")
             for key, info in out.get("tls", {}).items():
                 h, ip, p = key.split("|"); p = int(p)
                 if info:
