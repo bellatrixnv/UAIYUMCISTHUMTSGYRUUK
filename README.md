@@ -21,14 +21,14 @@ Trigger a scan:
 curl -s -X POST http://127.0.0.1:8000/scan -H 'content-type: application/json' -d '{"domain":"example.com"}'
 ```
 
-View scans and reports:
+View scans and reports (or start new scans from the web UI form):
 ```bash
 xdg-open http://127.0.0.1:8000/ 2>/dev/null || open http://127.0.0.1:8000/
 # open a specific report
 xdg-open http://127.0.0.1:8000/report/1 2>/dev/null || open http://127.0.0.1:8000/report/1
 ```
 
-Reports are HTML files saved under `reports/scan_<id>.html`. Use your browser's "Save as PDF" to export if needed.
+Reports are HTML files saved under `reports/scan_<id>.html` and can also be downloaded directly as PDF via `/report/<id>/pdf`.
 
 Add AWS connector and run CSPM checks:
 ```bash

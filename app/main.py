@@ -6,6 +6,7 @@ from . import db, scanner
 from .report import render_report
 from .panel import render_panel
 from .cspm_aws import run_checks
+import pdfkit
 
 app = FastAPI(title="SMBSEC MVP", version="0.1.0")
 
@@ -93,19 +94,7 @@ async def panel():
     html = render_panel(scans)
     return HTMLResponse(html)
 
-@app.get("/scans/{scan_id}")
-async def get_scan(scan_id:int):
-    s = await db.get_scan(scan_id)
-    if not s: raise HTTPException(404, "Not found")
-    f = await db.list_findings(scan_id)
-    return {"scan": s, "findings": f}
-
-@app.get("/report/{scan_id}", response_class=HTMLResponse)
-async def get_report(scan_id:int):
-    s = await db.get_scan(scan_id)
-    if not s: raise HTTPException(404, "Not found")
-    if s["status"] not in ("done","error"):
-        return HTMLResponse("<h3>Scan still running...</h3>")
+async def _build_report(scan_id:int, s:dict):
     import aiosqlite
     async with aiosqlite.connect(os.path.join(os.path.dirname(__file__), "..", "data.db")) as conn:
         conn.row_factory = aiosqlite.Row
@@ -119,7 +108,34 @@ async def get_report(scan_id:int):
     out_path = os.path.join(out_dir, f"scan_{scan_id}.html")
     with open(out_path, "w", encoding="utf-8") as fp:
         fp.write(html)
+    return html, out_dir
+
+@app.get("/scans/{scan_id}")
+async def get_scan(scan_id:int):
+    s = await db.get_scan(scan_id)
+    if not s: raise HTTPException(404, "Not found")
+    f = await db.list_findings(scan_id)
+    return {"scan": s, "findings": f}
+
+@app.get("/report/{scan_id}", response_class=HTMLResponse)
+async def get_report(scan_id:int):
+    s = await db.get_scan(scan_id)
+    if not s: raise HTTPException(404, "Not found")
+    if s["status"] not in ("done","error"):
+        return HTMLResponse("<h3>Scan still running...</h3>")
+    html,_ = await _build_report(scan_id, s)
     return HTMLResponse(html)
+
+@app.get("/report/{scan_id}/pdf")
+async def get_report_pdf(scan_id:int):
+    s = await db.get_scan(scan_id)
+    if not s: raise HTTPException(404, "Not found")
+    if s["status"] not in ("done","error"):
+        raise HTTPException(400, "Scan still running")
+    html,out_dir = await _build_report(scan_id, s)
+    pdf_path = os.path.join(out_dir, f"scan_{scan_id}.pdf")
+    pdfkit.from_string(html, pdf_path)
+    return FileResponse(pdf_path, media_type="application/pdf", filename=f"scan_{scan_id}.pdf")
 
 @app.post("/connect/aws")
 async def connect_aws(conn: AWSConnector):
