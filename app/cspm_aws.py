@@ -70,9 +70,26 @@ def iam_admin_findings(sess):
                 out.append({"resource": f"iam:group/{gname}", "issue": "Group has AdministratorAccess", "details": p})
     return out
 
+def sg_open_findings(sess):
+    ec2 = sess.client("ec2", config=Config(retries={'max_attempts': 3}))
+    out = []
+    resp = ec2.describe_security_groups()
+    for sg in resp.get("SecurityGroups", []):
+        for rule in sg.get("IpPermissions", []):
+            for rng in rule.get("IpRanges", []):
+                if rng.get("CidrIp") == "0.0.0.0/0":
+                    port = rule.get("FromPort")
+                    out.append({
+                        "resource": f"sg:{sg['GroupId']}",
+                        "issue": f"Security group allows 0.0.0.0/0 on port {port}",
+                        "details": rule,
+                    })
+    return out
+
 def run_checks(role_arn: str, external_id: str):
     sess = assume(role_arn, external_id)
     findings = []
     findings += s3_public_findings(sess)
     findings += iam_admin_findings(sess)
+    findings += sg_open_findings(sess)
     return findings
