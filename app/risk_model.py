@@ -59,9 +59,14 @@ class RiskModel:
             # fallthrough: generic open port isn't mapped; keep scoring via severity
 
         # HTTP without TLS sibling
-        if t == "http" and "http 200" in title or ("http " in title and " on port 80" in title):
-            # We'll confirm HTTPS absence in score()
-            return "http_no_tls"
+        if t == "http":
+            if (
+                "plain http exposed" in title
+                or "http 200" in title
+                or ("http " in title and " on port 80" in title)
+            ):
+                # We'll confirm HTTPS absence in score()
+                return "http_no_tls"
 
         # TLS expired/expiring
         if t == "tls":
