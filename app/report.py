@@ -1,5 +1,6 @@
 from jinja2 import Template
 from datetime import datetime
+import json
 
 TPL = Template("""
 <!doctype html><html><head>
@@ -37,6 +38,21 @@ TPL = Template("""
 {% endif %}
 {% endif %}
 
+{% if fix_queue %}
+<h2>Fix Queue</h2>
+<table><tr><th>Owner</th><th>Title</th><th>Controls</th><th>Score</th><th>Action</th></tr>
+{% for f in fix_queue %}
+<tr>
+  <td>{{ f.owner_email or "unassigned" }}</td>
+  <td>{{ f.title }}</td>
+  <td>ISO: {{ f.controls.iso27001|join(', ') }}<br>CIS: {{ f.controls.cis_controls|join(', ') }}</td>
+  <td>{{ f.risk_score }}</td>
+  <td>{{ f.description }}</td>
+</tr>
+{% endfor %}
+</table>
+{% endif %}
+
 <h2>Assets</h2>
 <table><tr><th>Host</th><th>IP</th><th>Last Seen</th></tr>
 {% for a in assets %}
@@ -63,4 +79,10 @@ TPL = Template("""
 
 def render_report(scan_id:int, domain:str, finished_ts:int, assets:list[dict], findings:list[dict], stats:dict|None)->str:
     fmt = datetime.utcfromtimestamp(finished_ts).strftime("%Y-%m-%d %H:%M:%S UTC")
-    return TPL.render(scan_id=scan_id, domain=domain, finished=fmt, assets=assets, findings=findings, stats=stats or {})
+    for f in findings:
+        cj = f.get("controls_json") or "{}"
+        f["controls"] = json.loads(cj)
+    sorted_findings = sorted(findings, key=lambda x: x.get("risk_score", 0), reverse=True)
+    fix_queue = sorted_findings[:5]
+    return TPL.render(scan_id=scan_id, domain=domain, finished=fmt, assets=assets,
+                      findings=sorted_findings, stats=stats or {}, fix_queue=fix_queue)

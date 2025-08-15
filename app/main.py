@@ -6,6 +6,7 @@ from . import db, scanner
 from .report import render_report
 from .panel import render_panel
 from .cspm_aws import run_checks
+from .risk_model import AssetContext, RiskModel
 import pdfkit
 
 app = FastAPI(title="SMBSEC MVP", version="0.1.0")
@@ -31,7 +32,9 @@ async def start_scan(req: ScanRequest):
         stats = {"hosts":0,"open":0,"score":100,"penalties":[],"bonuses":[]}
         try:
             out = await scanner.scan_domain(domain)
+            asset_ctxs: dict[str, AssetContext] = {}
             for host, ips in out["host_ips"].items():
+                asset_ctxs[host] = AssetContext()
                 if not ips:
                     await db.upsert_asset(scan_id, host, None)
                 for ip in ips:
@@ -41,7 +44,11 @@ async def start_scan(req: ScanRequest):
                 title = f"Open TCP {port}"
                 desc = "Service reachable from Internet"
                 sev = "medium"
-                await db.add_finding(scan_id, host, ip, port, "tcp", sev, title, desc, {})
+                finding = {"type": "tcp", "host": host, "ip": ip, "port": port,
+                           "severity": sev, "title": title, "description": desc,
+                           "evidence_json": {}}
+                score, details = RiskModel.score(finding, asset_ctxs.get(host, AssetContext()))
+                await db.add_finding(scan_id, host, ip, port, "tcp", sev, title, desc, {}, score, details["controls"])
                 stats["open"] += 1
                 if port in (3389, 5432, 6379, 3306):
                     stats["score"] -= 10
@@ -49,16 +56,21 @@ async def start_scan(req: ScanRequest):
             for key, fp in out["fingerprints"].items():
                 h, ip, p = key.split("|")
                 p = int(p)
-                if "status" in fp:
-                    title = f"HTTP {fp['status']} on port {p}"
-                    server = fp.get("server","")
-                    detail = f"Server: {server} Title: {fp.get('title','')}"
-                    await db.add_finding(scan_id, h, ip, p, "http", "low", title, detail, fp)
+                has_https = True
                 if p in (80, 8080):
                     has_https = any(x for x in out["open_ports"] if x[0]==h and x[1]==ip and x[2] in (443,8443))
                     if not has_https:
                         stats["score"] -= 5
                         stats["penalties"].append("HTTP exposed without HTTPS")
+                if "status" in fp:
+                    title = f"HTTP {fp['status']} on port {p}"
+                    server = fp.get("server","")
+                    detail = f"Server: {server} Title: {fp.get('title','')}"
+                    finding = {"type": "http", "host": h, "ip": ip, "port": p,
+                               "severity": "low", "title": title, "description": detail,
+                               "evidence_json": fp}
+                    score, details = RiskModel.score(finding, asset_ctxs.get(h, AssetContext()), sibling_https_open=has_https)
+                    await db.add_finding(scan_id, h, ip, p, "http", "low", title, detail, fp, score, details["controls"])
             for key, info in out.get("tls", {}).items():
                 h, ip, p = key.split("|"); p = int(p)
                 if info:
@@ -66,21 +78,38 @@ async def start_scan(req: ScanRequest):
                     proto = info.get("protocol","")
                     if isinstance(days, int):
                         if days < 0:
+                            title = "Expired TLS certificate"
+                            desc = "Certificate notAfter date is in the past"
+                            finding = {"type": "tls", "host": h, "ip": ip, "port": p,
+                                       "severity": "high", "title": title, "description": desc,
+                                       "evidence_json": info}
+                            score, details = RiskModel.score(finding, asset_ctxs.get(h, AssetContext()))
                             await db.add_finding(scan_id, h, ip, p, "tls", "high",
-                                "Expired TLS certificate", "Certificate notAfter date is in the past", info)
+                                title, desc, info, score, details["controls"])
                             stats["score"] -= 15
                             stats["penalties"].append("Expired TLS cert")
                         elif days < 14:
+                            title = "TLS certificate expiring soon"
+                            desc = f"Cert expires in {days} days"
+                            finding = {"type": "tls", "host": h, "ip": ip, "port": p,
+                                       "severity": "medium", "title": title, "description": desc,
+                                       "evidence_json": info}
+                            score, details = RiskModel.score(finding, asset_ctxs.get(h, AssetContext()))
                             await db.add_finding(scan_id, h, ip, p, "tls", "medium",
-                                "TLS certificate expiring soon", f"Cert expires in {days} days", info)
+                                title, desc, info, score, details["controls"])
                     if proto and proto.startswith("TLSv1.3"):
                         stats["score"] += 2
                         stats["bonuses"].append("TLS 1.3 detected")
             for key, banner in out.get("ssh", {}).items():
                 if banner:
                     h, ip, p = key.split("|"); p = int(p)
+                    title = "SSH service banner"
+                    finding = {"type": "ssh", "host": h, "ip": ip, "port": p,
+                               "severity": "info", "title": title, "description": banner,
+                               "evidence_json": {"banner": banner}}
+                    score, details = RiskModel.score(finding, asset_ctxs.get(h, AssetContext()))
                     await db.add_finding(scan_id, h, ip, p, "ssh", "info",
-                        "SSH service banner", banner, {"banner": banner})
+                        title, banner, {"banner": banner}, score, details["controls"])
         except Exception as e:
             await db.finish_scan(scan_id, "error", {"error": str(e)})
             return
@@ -156,8 +185,13 @@ async def cspm_run():
             title = it["issue"]
             res = it["resource"]
             sev = "high" if "AdministratorAccess" in title or "Public" in title else "medium"
+            finding = {"type": "aws", "host": res, "ip": None, "port": None,
+                       "severity": sev, "title": title,
+                       "description": f"AWS check flagged: {res}", "evidence_json": it}
+            score, details = RiskModel.score(finding, AssetContext())
             await db.add_finding(scan_id, host=res, ip=None, port=None, proto="aws", severity=sev,
-                                 title=title, description=f"AWS check flagged: {res}", evidence=it)
+                                 title=title, description=f"AWS check flagged: {res}", evidence=it,
+                                 risk_score=score, controls=details["controls"])
         await db.finish_scan(scan_id, "done", {"count": len(results)})
     except Exception as e:
         await db.finish_scan(scan_id, "error", {"error": str(e)})
