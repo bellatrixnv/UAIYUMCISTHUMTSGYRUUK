@@ -4,6 +4,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from pydantic import BaseModel
 from . import db, scanner
 from .report import render_report
+from .panel import render_panel
 from .cspm_aws import run_checks
 
 app = FastAPI(title="SMBSEC MVP", version="0.1.0")
@@ -85,6 +86,12 @@ async def start_scan(req: ScanRequest):
         await db.finish_scan(scan_id, "done", stats)
     asyncio.create_task(run())
     return {"scan_id": scan_id, "status": "running"}
+
+@app.get("/", response_class=HTMLResponse)
+async def panel():
+    scans = await db.list_scans()
+    html = render_panel(scans)
+    return HTMLResponse(html)
 
 @app.get("/scans/{scan_id}")
 async def get_scan(scan_id:int):

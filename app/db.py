@@ -89,6 +89,12 @@ async def get_scan(scan_id:int)->dict|None:
         row = await cur.fetchone()
         return dict(row) if row else None
 
+async def list_scans()->list[dict]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute("SELECT * FROM scans ORDER BY id DESC")
+        return [dict(r) for r in await cur.fetchall()]
+
 async def list_findings(scan_id:int)->list[dict]:
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
