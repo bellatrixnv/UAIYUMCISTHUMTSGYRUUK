@@ -7,12 +7,18 @@ from .report import render_report
 from .panel import render_panel
 from .cspm_aws import run_checks
 from .risk_model import AssetContext, RiskModel
+from .notifications import send_digest
 import pdfkit
 
 app = FastAPI(title="SMBSEC MVP", version="0.1.0")
 
 class ScanRequest(BaseModel):
     domain: str
+
+class ScopeItem(BaseModel):
+    kind: str
+    value: str
+    org: str | None = None
 
 class AWSConnector(BaseModel):
     role_arn: str
@@ -27,6 +33,8 @@ async def start_scan(req: ScanRequest):
     domain = req.domain.strip().lower()
     if not domain or " " in domain or "." not in domain:
         raise HTTPException(400, "Invalid domain")
+    if not await db.domain_in_scope(domain):
+        raise HTTPException(400, "Domain not in scope")
     scan_id = await db.create_scan(domain)
     async def run():
         stats = {"hosts":0,"open":0,"score":100,"penalties":[],"bonuses":[]}
@@ -110,12 +118,25 @@ async def start_scan(req: ScanRequest):
                     score, details = RiskModel.score(finding, asset_ctxs.get(h, AssetContext()))
                     await db.add_finding(scan_id, h, ip, p, "ssh", "info",
                         title, banner, {"banner": banner}, score, details["controls"])
+                        "SSH service banner", banner, {"banner": banner})
+            trans = await db.compute_state_transitions(scan_id)
+            await send_digest(scan_id, trans)
         except Exception as e:
             await db.finish_scan(scan_id, "error", {"error": str(e)})
             return
         await db.finish_scan(scan_id, "done", stats)
     asyncio.create_task(run())
     return {"scan_id": scan_id, "status": "running"}
+
+@app.post("/org/scope")
+async def add_scope(item: ScopeItem):
+    kind = item.kind.strip().lower()
+    value = item.value.strip().lower()
+    org = (item.org or 'default').strip().lower()
+    if kind not in ('domain','cidr') or not value:
+        raise HTTPException(400, "Invalid scope")
+    await db.add_scope(org, kind, value)
+    return {"status": "ok"}
 
 @app.get("/", response_class=HTMLResponse)
 async def panel():
