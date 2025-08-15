@@ -168,7 +168,6 @@ async def start_scan(req: ScanRequest):
                     score, details = RiskModel.score(finding, asset_ctxs.get(h, AssetContext()))
                     await db.add_finding(scan_id, h, ip, p, "ssh", "info",
                         title, banner, {"banner": banner}, score, details["controls"])
-                        "SSH service banner", banner, {"banner": banner})
             trans = await db.compute_state_transitions(scan_id)
             await send_digest(scan_id, trans)
         except Exception as e:
@@ -179,22 +178,18 @@ async def start_scan(req: ScanRequest):
     return {"scan_id": scan_id, "status": "running"}
 
 @app.post("/org/scope")
-async def add_scope(asset: ScopeAsset):
-    await db.upsert_asset(
-        asset.scan_id,
-        asset.host,
-        asset.ip,
-        owner_email=asset.owner_email,
-        criticality=asset.criticality,
-        data_class=asset.data_class,
-    )
-async def add_scope(item: ScopeItem):
-    kind = item.kind.strip().lower()
-    value = item.value.strip().lower()
-    org = (item.org or 'default').strip().lower()
-    if kind not in ('domain','cidr') or not value:
-        raise HTTPException(400, "Invalid scope")
-    await db.add_scope(org, kind, value)
+async def add_scope(item: ScopeItem | ScopeAsset):
+    if isinstance(item, ScopeItem):
+        await db.add_scope(item.org or "default", item.kind, item.value)
+    else:
+        await db.upsert_asset(
+            item.scan_id,
+            item.host,
+            item.ip,
+            owner_email=item.owner_email,
+            criticality=item.criticality,
+            data_class=item.data_class,
+        )
     return {"status": "ok"}
 
 @app.get("/", response_class=HTMLResponse)

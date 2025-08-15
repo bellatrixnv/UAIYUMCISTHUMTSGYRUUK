@@ -54,7 +54,7 @@ CREATE TABLE IF NOT EXISTS finding_states(
   dedupe_key TEXT NOT NULL,
   state TEXT NOT NULL CHECK(state IN ('open','resolved')),
   PRIMARY KEY (scan_id, dedupe_key)
-
+);
 CREATE TABLE IF NOT EXISTS scope(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   org TEXT NOT NULL DEFAULT 'default',
@@ -102,13 +102,10 @@ async def upsert_asset(scan_id:int, host:str, ip:str|None, *, owner_email:str|No
 
 async def add_finding(scan_id:int, host:str, ip:str|None, port:int|None, proto:str|None,
                       severity:str, title:str, description:str, evidence:dict,
-                      risk_score:float, controls:dict):
+                      risk_score:float=0, controls:dict|None=None):
+    if controls is None:
+        controls = {}
     async with aiosqlite.connect(DB_PATH) as db:
-        cur = await db.execute("""INSERT INTO findings
-            (scan_id,host,ip,port,proto,severity,title,description,evidence_json,created_at)
-            VALUES(?,?,?,?,?,?,?,?,?,?)""",
-            (scan_id,host,ip,port,proto,severity,title,description,json.dumps(evidence),int(time.time())))
-        finding_id = cur.lastrowid
         owner_email = None
         cur = await db.execute(
             "SELECT owner_email FROM assets WHERE scan_id=? AND host=? AND ifnull(ip,'')=ifnull(?, '')",
@@ -116,11 +113,11 @@ async def add_finding(scan_id:int, host:str, ip:str|None, port:int|None, proto:s
         row = await cur.fetchone()
         if row:
             owner_email = row[0]
-
-        await db.execute("""INSERT INTO findings
+        cur = await db.execute("""INSERT INTO findings
             (scan_id,host,ip,port,proto,severity,title,description,evidence_json,risk_score,controls_json,created_at)
             VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
             (scan_id,host,ip,port,proto,severity,title,description,json.dumps(evidence),risk_score,json.dumps(controls),int(time.time())))
+        finding_id = cur.lastrowid
         await db.commit()
     if severity in ("high", "critical"):
         fix_queue.add(finding_id, owner_email, severity, title, description)
