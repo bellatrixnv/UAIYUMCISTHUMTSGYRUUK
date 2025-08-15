@@ -17,6 +17,14 @@ class AWSConnector(BaseModel):
     role_arn: str
     external_id: str
 
+class ScopeAsset(BaseModel):
+    scan_id: int
+    host: str
+    ip: str | None = None
+    owner_email: str | None = None
+    criticality: int | None = None
+    data_class: str | None = None
+
 @app.on_event("startup")
 async def startup():
     await db.init_db()
@@ -87,6 +95,18 @@ async def start_scan(req: ScanRequest):
         await db.finish_scan(scan_id, "done", stats)
     asyncio.create_task(run())
     return {"scan_id": scan_id, "status": "running"}
+
+@app.post("/org/scope")
+async def add_scope(asset: ScopeAsset):
+    await db.upsert_asset(
+        asset.scan_id,
+        asset.host,
+        asset.ip,
+        owner_email=asset.owner_email,
+        criticality=asset.criticality,
+        data_class=asset.data_class,
+    )
+    return {"status": "ok"}
 
 @app.get("/", response_class=HTMLResponse)
 async def panel():
