@@ -114,7 +114,9 @@ async def get_report(scan_id:int):
     f = await db.list_findings(scan_id)
     stats = json.loads(s.get("stats_json", "{}"))
     html = render_report(scan_id, s["domain"], s["finished_at"] or int(time.time()), assets, f, stats)
-    out_path = os.path.join(os.path.dirname(__file__), "..", "reports", f"scan_{scan_id}.html")
+    out_dir = os.path.join(os.path.dirname(__file__), "..", "reports")
+    os.makedirs(out_dir, exist_ok=True)
+    out_path = os.path.join(out_dir, f"scan_{scan_id}.html")
     with open(out_path, "w", encoding="utf-8") as fp:
         fp.write(html)
     return HTMLResponse(html)
