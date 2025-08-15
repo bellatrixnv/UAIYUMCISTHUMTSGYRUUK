@@ -32,6 +32,8 @@ CREATE TABLE IF NOT EXISTS findings(
   title TEXT NOT NULL,
   description TEXT NOT NULL,
   evidence_json TEXT NOT NULL DEFAULT '{}',
+  risk_score REAL NOT NULL DEFAULT 0,
+  controls_json TEXT NOT NULL DEFAULT '{}',
   created_at INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS connectors(
@@ -87,12 +89,13 @@ async def upsert_asset(scan_id:int, host:str, ip:str|None):
         await db.commit()
 
 async def add_finding(scan_id:int, host:str, ip:str|None, port:int|None, proto:str|None,
-                      severity:str, title:str, description:str, evidence:dict):
+                      severity:str, title:str, description:str, evidence:dict,
+                      risk_score:float, controls:dict):
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("""INSERT INTO findings
-            (scan_id,host,ip,port,proto,severity,title,description,evidence_json,created_at)
-            VALUES(?,?,?,?,?,?,?,?,?,?)""",
-            (scan_id,host,ip,port,proto,severity,title,description,json.dumps(evidence),int(time.time())))
+            (scan_id,host,ip,port,proto,severity,title,description,evidence_json,risk_score,controls_json,created_at)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (scan_id,host,ip,port,proto,severity,title,description,json.dumps(evidence),risk_score,json.dumps(controls),int(time.time())))
         await db.commit()
 
 async def get_scan(scan_id:int)->dict|None:
