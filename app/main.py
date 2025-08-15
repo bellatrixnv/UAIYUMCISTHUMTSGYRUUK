@@ -1,5 +1,5 @@
-import asyncio, json, os, time
-from fastapi import FastAPI, HTTPException
+import asyncio, json, os, time, random
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from pydantic import BaseModel
 from . import db, scanner
@@ -194,8 +194,7 @@ async def add_scope(item: ScopeItem | ScopeAsset):
 
 @app.get("/", response_class=HTMLResponse)
 async def panel():
-    scans = await db.list_scans()
-    html = render_panel(scans)
+    html = render_panel([])
     return HTMLResponse(html)
 
 async def _build_report(scan_id:int, s:dict):
@@ -271,3 +270,40 @@ async def cspm_run():
     except Exception as e:
         await db.finish_scan(scan_id, "error", {"error": str(e)})
     return {"scan_id": scan_id}
+
+@app.websocket("/ws")
+async def ws_dashboard(ws: WebSocket):
+    await ws.accept()
+    try:
+        while True:
+            score = random.randint(60, 100)
+            node_count = 5
+            nodes = [{"id": f"host{i}"} for i in range(1, node_count + 1)]
+            links = [{"source": f"host{i}", "target": f"host{(i % node_count) + 1}"} for i in range(1, node_count + 1)]
+            incident = {
+                "id": int(time.time()),
+                "severity": random.choice(["low", "medium", "high"]),
+                "message": random.choice([
+                    "Suspicious login detected",
+                    "Malware signature found",
+                    "Port scan activity",
+                    "Unauthorized access attempt",
+                    "Policy violation reported",
+                ]),
+            }
+            kpis = {
+                "cpu": random.randint(0, 100),
+                "scan": random.randint(0, 100),
+                "findings": random.randint(0, 50),
+                "compliance": random.randint(0, 100),
+            }
+            await ws.send_text(json.dumps({
+                "score": score,
+                "nodes": nodes,
+                "links": links,
+                "incident": incident,
+                "kpis": kpis,
+            }))
+            await asyncio.sleep(1)
+    except WebSocketDisconnect:
+        return
