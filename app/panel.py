@@ -12,6 +12,8 @@ TPL = Template("""
 </style>
 </head><body>
 <h1>Scan Overview</h1>
+<form id="scan-form"><input type="text" id="domain" placeholder="example.com"> <button type="submit">Start Scan</button></form>
+<script>document.getElementById('scan-form').addEventListener('submit',async(e)=>{e.preventDefault();const d=document.getElementById('domain').value.trim();if(!d)return;await fetch('/scan',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({domain:d})});location.reload();});</script>
 <table>
 <tr><th>ID</th><th>Domain</th><th>Status</th><th>Started</th><th>Finished</th><th>Report</th></tr>
 {% for s in scans %}

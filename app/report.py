@@ -20,10 +20,13 @@ TPL = Template("""
 <h1>Security Scan Report</h1>
 <p><strong>Scan ID:</strong> {{ scan_id }} &nbsp; | &nbsp; <strong>Domain:</strong> {{ domain }}
  &nbsp; | &nbsp; <strong>Finished:</strong> {{ finished }}</p>
+<p><a href="/report/{{ scan_id }}/pdf">Download PDF</a></p>
 
 {% if stats %}
 <h2>Compliance Score</h2>
 <p><strong>Score:</strong> {{ stats.score }}</p>
+<meter min="0" max="120" value="{{ stats.score }}" style="width:300px"></meter>
+<p><small>100 = baseline good score. Penalties reduce it; bonuses can raise above 100.</small></p>
 {% if stats.penalties %}
 <p>Penalties:</p>
 <ul>{% for p in stats.penalties %}<li>{{ p }}</li>{% endfor %}</ul>
