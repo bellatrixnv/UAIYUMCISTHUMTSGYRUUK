@@ -47,6 +47,12 @@ CREATE TABLE IF NOT EXISTS finding_states(
   dedupe_key TEXT NOT NULL,
   state TEXT NOT NULL CHECK(state IN ('open','resolved')),
   PRIMARY KEY (scan_id, dedupe_key)
+
+CREATE TABLE IF NOT EXISTS scope(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  org TEXT NOT NULL DEFAULT 'default',
+  kind TEXT NOT NULL CHECK(kind IN ('domain','cidr')),
+  value TEXT NOT NULL
 );
 """
 
@@ -193,3 +199,27 @@ async def compute_state_transitions(scan_id:int)->dict[str,set[str]]:
     new = diff['new'] - regressed
     await _record_states(scan_id, curr, diff['resolved'])
     return {'new': new, 'resolved': diff['resolved'], 'regressed': regressed}
+async def add_scope(org:str, kind:str, value:str):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("INSERT INTO scope(org,kind,value) VALUES(?,?,?)",
+                         (org, kind, value))
+        await db.commit()
+
+async def list_scope(org:str='default')->list[dict]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute("SELECT * FROM scope WHERE org=?", (org,))
+        return [dict(r) for r in await cur.fetchall()]
+
+async def domain_in_scope(domain:str, org:str='default')->bool:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute("SELECT kind,value FROM scope WHERE org=?", (org,))
+        rows = await cur.fetchall()
+        domain = domain.lower()
+        for r in rows:
+            if r["kind"] == "domain":
+                val = r["value"].lower()
+                if domain == val or domain.endswith("." + val):
+                    return True
+        return False
