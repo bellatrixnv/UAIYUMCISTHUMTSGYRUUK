@@ -1,4 +1,4 @@
-import asyncio, json, socket
+import asyncio, json, socket, re
 from typing import Iterable
 import httpx
 import dns.resolver
@@ -54,13 +54,17 @@ async def tcp_connect(ip:str, port:int, timeout:float=1.0)->bool:
 async def http_fingerprint(host:str, ip:str, scheme:str)->dict:
     url = f"{scheme}://{host}/"
     try:
-        async with httpx.AsyncClient(timeout=5, verify=(scheme=="https")) as c:
-            r = await c.get(url, headers={"Host":host, "User-Agent":"smbsec-mvp/1.0"})
+        async with httpx.AsyncClient(timeout=5, verify=(scheme == "https")) as c:
+            r = await c.get(url, headers={"Host": host, "User-Agent": "smbsec-mvp/1.0"})
+            m = re.search(r"<title>(.*?)</title>", r.text, re.IGNORECASE | re.DOTALL)
+            title = m.group(1)[:200] if m else ""
             return {
                 "status": r.status_code,
-                "server": r.headers.get("server",""),
-                "title": (r.text.split("<title>")[1].split("</title>")[0][:200]
-                          if "<title>" in r.text.lower() else "")
+                "server": r.headers.get("server", ""),
+                "hsts": bool(r.headers.get("strict-transport-security")),
+                "location": r.headers.get("location", ""),
+                "headers_sample": dict(list(r.headers.items())[:10]),
+                "title": title,
             }
     except Exception as e:
         return {"error": str(e)[:200]}
