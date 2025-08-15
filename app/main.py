@@ -24,6 +24,13 @@ class AWSConnector(BaseModel):
     role_arn: str
     external_id: str
 
+class ScopeAsset(BaseModel):
+    scan_id: int
+    host: str
+    ip: str | None = None
+    owner_email: str | None = None
+    criticality: int | None = None
+    data_class: str | None = None
 RISKY = {3389, 5432, 6379, 3306, 9200, 27017}
 
 def has_https(open_ports, host, ip):
@@ -172,6 +179,15 @@ async def start_scan(req: ScanRequest):
     return {"scan_id": scan_id, "status": "running"}
 
 @app.post("/org/scope")
+async def add_scope(asset: ScopeAsset):
+    await db.upsert_asset(
+        asset.scan_id,
+        asset.host,
+        asset.ip,
+        owner_email=asset.owner_email,
+        criticality=asset.criticality,
+        data_class=asset.data_class,
+    )
 async def add_scope(item: ScopeItem):
     kind = item.kind.strip().lower()
     value = item.value.strip().lower()

@@ -1,4 +1,6 @@
 import aiosqlite, asyncio, json, os, time
+from . import fix_queue
+
 from .state_transition import state_transition as _state_transition
 DB_PATH = os.path.join(os.path.dirname(__file__), "..", "data.db")
 
@@ -17,6 +19,9 @@ CREATE TABLE IF NOT EXISTS assets(
   scan_id INTEGER NOT NULL,
   host TEXT NOT NULL,
   ip TEXT,
+  owner_email TEXT,
+  criticality INTEGER,
+  data_class TEXT,
   first_seen INTEGER NOT NULL,
   last_seen INTEGER NOT NULL,
   UNIQUE(scan_id, host, ip)
@@ -77,26 +82,49 @@ async def finish_scan(scan_id:int, status:str, stats:dict):
                          (int(time.time()), status, json.dumps(stats), scan_id))
         await db.commit()
 
-async def upsert_asset(scan_id:int, host:str, ip:str|None):
+async def upsert_asset(scan_id:int, host:str, ip:str|None, *, owner_email:str|None=None,
+                       criticality:int|None=None, data_class:str|None=None):
     now = int(time.time())
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
-            "INSERT OR IGNORE INTO assets(scan_id,host,ip,first_seen,last_seen) VALUES(?,?,?,?,?)",
-            (scan_id, host, ip, now, now))
+            "INSERT OR IGNORE INTO assets(scan_id,host,ip,owner_email,criticality,data_class,first_seen,last_seen) VALUES(?,?,?,?,?,?,?,?)",
+            (scan_id, host, ip, owner_email, criticality, data_class, now, now))
         await db.execute(
-            "UPDATE assets SET last_seen=? WHERE scan_id=? AND host=? AND ifnull(ip,'')=ifnull(?, '')",
-            (now, scan_id, host, ip))
+            """
+            UPDATE assets SET last_seen=?,
+                owner_email=COALESCE(?,owner_email),
+                criticality=COALESCE(?,criticality),
+                data_class=COALESCE(?,data_class)
+            WHERE scan_id=? AND host=? AND ifnull(ip,'')=ifnull(?, '')
+            """,
+            (now, owner_email, criticality, data_class, scan_id, host, ip))
         await db.commit()
 
 async def add_finding(scan_id:int, host:str, ip:str|None, port:int|None, proto:str|None,
                       severity:str, title:str, description:str, evidence:dict,
                       risk_score:float, controls:dict):
     async with aiosqlite.connect(DB_PATH) as db:
+        cur = await db.execute("""INSERT INTO findings
+            (scan_id,host,ip,port,proto,severity,title,description,evidence_json,created_at)
+            VALUES(?,?,?,?,?,?,?,?,?,?)""",
+            (scan_id,host,ip,port,proto,severity,title,description,json.dumps(evidence),int(time.time())))
+        finding_id = cur.lastrowid
+        owner_email = None
+        cur = await db.execute(
+            "SELECT owner_email FROM assets WHERE scan_id=? AND host=? AND ifnull(ip,'')=ifnull(?, '')",
+            (scan_id, host, ip))
+        row = await cur.fetchone()
+        if row:
+            owner_email = row[0]
+
         await db.execute("""INSERT INTO findings
             (scan_id,host,ip,port,proto,severity,title,description,evidence_json,risk_score,controls_json,created_at)
             VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
             (scan_id,host,ip,port,proto,severity,title,description,json.dumps(evidence),risk_score,json.dumps(controls),int(time.time())))
         await db.commit()
+    if severity in ("high", "critical"):
+        fix_queue.add(finding_id, owner_email, severity, title, description)
+        fix_queue.open_jira_ticket(finding_id, title, description, owner_email)
 
 async def get_scan(scan_id:int)->dict|None:
     async with aiosqlite.connect(DB_PATH) as db:
