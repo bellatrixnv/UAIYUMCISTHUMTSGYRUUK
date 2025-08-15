@@ -1,19 +1,24 @@
-from app.risk_model import RiskModel
+from app.risk_model import RiskModel, AssetContext
 
-mapping_file = 'app/mappings/controls.yaml'
+def test_categorize_and_controls_rdp():
+    f = {"type":"tcp","port":3389,"host":"rdp.example.com","title":"Open TCP 3389"}
+    ctx = AssetContext(criticality=4, data_class="P2", internet_exposed=True)
+    score, det = RiskModel.score(f, ctx)
+    assert det["finding_type"] == "open_port_rdp"
+    assert score > 6
+    assert "iso27001" in det["controls"]
 
-rm = RiskModel(mapping_file)
+def test_http_no_tls_penalty():
+    f = {"type":"http","port":80,"host":"www.example.com","title":"HTTP 200 on port 80"}
+    ctx = AssetContext(criticality=3, data_class="P1", internet_exposed=True)
+    score_no_https, _ = RiskModel.score(f, ctx, sibling_https_open=False)
+    score_with_https, _ = RiskModel.score(f, ctx, sibling_https_open=True)
+    assert score_no_https > score_with_https
 
-def test_categorize_and_map_controls():
-    finding = {"service": "rdp", "port": 3389}
-    tags = rm.categorize(finding)
-    assert "rdp_exposed" in tags
-    controls = rm.map_controls({"type": "rdp_exposed"})
-    assert {"framework": "ISO27001", "control": "A.13.1.1"} in controls
-    assert {"framework": "CIS", "control": "9.1"} in controls
-
-def test_score():
-    finding = {"severity_weight": 5, "exposure": 2, "exploitability_hint": 1.5}
-    asset = {"criticality": 3}
-    score = rm.score(finding, asset)
-    assert score == 5 * 2 * 3 * 1.5
+def test_tls_expired_is_high():
+    f = {"type":"tls","port":443,"host":"foo","title":"Expired TLS certificate",
+         "evidence_json":{"days_to_expiry": -1}}
+    ctx = AssetContext(criticality=3, data_class="P1", internet_exposed=True)
+    score, det = RiskModel.score(f, ctx)
+    assert det["finding_type"] == "tls_expired"
+    assert score >= 7

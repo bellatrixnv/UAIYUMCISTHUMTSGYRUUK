@@ -1,0 +1,60 @@
+version: "1.0"
+last_updated: "2025-08-15"
+
+# Each key is a canonical finding_type. RiskModel will assign these.
+mappings:
+  open_port_rdp:
+    iso27001:
+      - "A.8.16 Secure configuration of network services"
+      - "A.5.15 Access control to networks and network services"
+    cis_controls:
+      - "CIS Control 4: Secure Configuration of Enterprise Assets and Software"
+      - "CIS Control 12: Network Infrastructure Management"
+    default_severity: "high"
+    notes: "RDP on the internet is a top ransomware vector."
+
+  open_port_db_mysql:
+    iso27001:
+      - "A.8.16 Secure configuration of network services"
+      - "A.8.23 Web filtering and secure web gateways"
+    cis_controls:
+      - "CIS Control 12: Network Infrastructure Management"
+      - "CIS Control 3: Data Protection"
+    default_severity: "high"
+    notes: "Databases should not be internet-exposed."
+
+  open_port_db_postgres:
+    iso27001: ["A.8.16 Secure configuration of network services"]
+    cis_controls: ["CIS Control 12: Network Infrastructure Management"]
+    default_severity: "high"
+    notes: "PostgreSQL reachable from Internet."
+
+  http_no_tls:
+    iso27001: ["A.8.24 Use of cryptography", "A.8.29 Security testing in development and acceptance"]
+    cis_controls: ["CIS Control 13: Network Monitoring and Defense"]
+    default_severity: "medium"
+
+  tls_expired:
+    iso27001: ["A.8.24 Use of cryptography"]
+    cis_controls: ["CIS Control 3: Data Protection"]
+    default_severity: "high"
+
+  ssh_banner_leak:
+    iso27001: ["A.5.36 Information security for use of cloud services", "A.8.10 Security of network services"]
+    cis_controls: ["CIS Control 14: Security Awareness and Skills Training"]
+    default_severity: "low"
+
+  s3_public_bucket:
+    iso27001: ["A.5.36 Cloud services security", "A.8.12 Data leakage prevention"]
+    cis_controls: ["CIS Control 3: Data Protection", "CIS Control 4: Secure Configuration"]
+    default_severity: "high"
+
+  iam_user_admin_access:
+    iso27001: ["A.5.15 Access control to networks and network services", "A.8.2 Privileged access rights"]
+    cis_controls: ["CIS Control 6: Access Control Management"]
+    default_severity: "high"
+
+  sg_all_open_0_0_0_0:
+    iso27001: ["A.8.16 Secure configuration of network services"]
+    cis_controls: ["CIS Control 12: Network Infrastructure Management"]
+    default_severity: "high"
